@@ -8,6 +8,7 @@
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
 #include "pico/time.h"
+#include "pico/util/queue.h"
 
 #include "csrc/u8g2.h"
 #include "encoder.hpp"
@@ -15,7 +16,6 @@
 #include "u8g2functions.h"
 
 using namespace pimoroni;
-
 
 static const uint8_t ENCODER_PIN_A = 12;
 static const uint8_t ENCODER_PIN_B = 13;
@@ -33,38 +33,53 @@ static const uint16_t FREQ_DIVIDER =
 
 u8g2_t u8g2;
 bool spiInit = false;
+queue_t queue;
 
 Encoder encoder(pio0, ENCODER_PIN_A, ENCODER_PIN_B, ENCODER_PIN_C,
                 COUNTS_PER_REVOLUTION, COUNT_MICROSTEPS, FREQ_DIVIDER);
 
+uint32_t flashDelay = 0;
+int32_t lastCount = 0;
+int32_t position = 0;
+
+int8_t snowmanTop;
+int8_t snowmanWidth;
+int8_t snowmanHeight;
+uint16_t displayWidth;
+uint16_t displayHeight;
 
 void drawDisplay(uint32_t position) {
-  if(position > 100){
-    return;
+  char msg[15] = "Hello Snowman!";
+  if (position == 0) {
+    u8g2_ClearBuffer(&u8g2);
+    u8g2_ClearDisplay(&u8g2);
+    u8g2_SetMaxClipWindow(&u8g2);
+    u8g2_SetFont(&u8g2, u8g2_font_6x13_tr); // choose a suitable font
+
+    u8g2_DrawStr(&u8g2, (displayWidth - u8g2_GetStrWidth(&u8g2, msg)) / 2,
+                 u8g2_GetMaxCharHeight(&u8g2) + 2,
+                 msg); // write something to the internal memory
+
+    snprintf(msg, 15, "Count: %d", position);
+    u8g2_DrawStr(&u8g2, (displayWidth - u8g2_GetStrWidth(&u8g2, msg)) / 2,
+                 displayHeight - 2, msg); // write something to the internal memory
+
+    u8g2_DrawFrame(&u8g2, 0, 0, displayWidth, displayHeight);
+
+    u8g2_SetDrawColor(&u8g2, 1);
+    u8g2_UpdateDisplay(&u8g2);
   }
-  u8g2_ClearBuffer(&u8g2);
-  u8g2_ClearDisplay(&u8g2);
-  u8g2_SetFont(&u8g2, u8g2_font_6x13_tr); // choose a suitable font
-  u8g2_DrawStr(&u8g2, 10, 10,
-               "Hello Snowman!"); // write something to the internal memory
-
-  std::stringstream sstream;
-  sstream << "Count: " << position;
-  u8g2_DrawStr(&u8g2, 10, 50,
-               sstream.str().c_str()); // write something to the internal memory
-
-  u8g2_SetDrawColor(&u8g2, 1);
-
   u8g2_SetFont(&u8g2, u8g2_font_unifont_t_symbols);
-  u8g2_DrawGlyph(&u8g2, 10 + position, 30, 0x2603);
-  u8g2_DrawFrame(&u8g2, 0, 0, u8g2_GetDisplayWidth(&u8g2),
-                 u8g2_GetDisplayHeight(&u8g2));
 
-
-  // u8g2_DrawBox(&u8g2, 30,30,50,50);
+  
+  u8g2_SetClipWindow(&u8g2, 1, snowmanTop - snowmanHeight, displayWidth - 1, snowmanTop);
+  u8g2_SetDrawColor(&u8g2, 0);
+  u8g2_DrawBox(&u8g2, 1, snowmanTop - snowmanHeight, displayWidth - 1, snowmanTop);
+  u8g2_SetDrawColor(&u8g2, 1);
+  u8g2_DrawGlyph(&u8g2, 1 + position, snowmanTop, 0x2603);
   u8g2_UpdateDisplay(&u8g2);
-  u8g2_SendBuffer(&u8g2);
 }
+
 
 void display_core() {
   u8g2_Setup_uc1701_mini12864_f(&u8g2, U8G2_R0, u8x8_byte_pico_hw_spi,
@@ -73,52 +88,52 @@ void display_core() {
   u8g2_SetPowerSave(&u8g2, 0); // wake up display
   u8g2_SetContrast(&u8g2, 200);
 
+  displayHeight = u8g2_GetDisplayHeight(&u8g2);
+  displayWidth = u8g2_GetDisplayWidth(&u8g2);
+
+  u8g2_SetFont(&u8g2, u8g2_font_unifont_t_symbols);
+  snowmanWidth = u8g2_GetMaxCharWidth(&u8g2);
+  snowmanHeight = u8g2_GetMaxCharHeight(&u8g2);
+  snowmanTop = ((displayHeight - snowmanHeight) / 2) + snowmanHeight;
+
+
   drawDisplay(0);
 
+  int32_t count;
   while (1) {
-    uint32_t delay = multicore_fifo_pop_blocking();
-    drawDisplay(delay);
+    queue_remove_blocking(&queue, &count);
+    if(count == INT32_MIN){
+      lastCount = 0;
+      position = 0;
+      drawDisplay(position);
+    }else if(count != lastCount){
+      position += count - lastCount;
+      if (position < 0) {
+        position = 0;
+      }
+      if(position > displayWidth - 2 - snowmanWidth){
+        position = displayWidth - 2 - snowmanWidth;
+      }
+      drawDisplay(position);
+      lastCount = count;
+    
+    }
   }
 }
 
-uint32_t flashDelay = 0;
-uint32_t lastPosition = 0;
+
 bool repeating_timer_callback(struct repeating_timer *t) {
-  Capture capture = encoder.perform_capture();
-  {
-    std::stringstream sstream;
-    sstream << "Count: " << capture.get_count() << "\n";
-    printf(sstream.str().c_str());
-  }
-
-  {
-    std::stringstream sstream;
-    sstream << "Freq: " << std::fixed << std::setprecision(1)
-            << capture.get_frequency() << "hz"
-            << "\n";
-    printf(sstream.str().c_str());
-  }
-
-  {
-    std::stringstream sstream;
-    sstream << "RPM:" << std::fixed << std::setprecision(1)
-            << capture.get_revolutions_per_minute() << "\n";
-    printf(sstream.str().c_str());
-  }
-  if (lastPosition != capture.get_count()) {
-    multicore_fifo_push_blocking(capture.get_count());
-    lastPosition = capture.get_count();
-    flashDelay = 100 + (lastPosition *10);
-  }
-
-  printf("Button %s\n",   gpio_get(ENCODER_SWITCH_PIN) ? "true":  "false" );
-
+  int32_t count = encoder.get_count();
+  queue_try_add(&queue, &count);
+  flashDelay = 100 + (count * 10);
   return true;
 }
 
 void gpio_callback(uint gpio, uint32_t events) {
-    encoder.zero_count();
-    multicore_fifo_push_blocking(0);
+  encoder.zero_count();
+  int32_t value = INT32_MIN;
+  queue_try_add(&queue, &value);
+  // multicore_fifo_push_blocking(0);
 }
 
 int main() {
@@ -130,6 +145,8 @@ int main() {
   gpio_init(LED_PIN);
   gpio_set_dir(LED_PIN, GPIO_OUT);
 
+  queue_init_with_spinlock(&queue, sizeof(int32_t), 10, 1);
+
   multicore_launch_core1(display_core);
 
   if (ENCODER_SWITCH_PIN != Encoder::PIN_UNUSED) {
@@ -139,11 +156,11 @@ int main() {
   }
   encoder.init();
 
-
   struct repeating_timer timer;
   add_repeating_timer_ms(-500, repeating_timer_callback, NULL, &timer);
 
-  gpio_set_irq_enabled_with_callback(ENCODER_SWITCH_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
+  gpio_set_irq_enabled_with_callback(ENCODER_SWITCH_PIN, GPIO_IRQ_EDGE_FALL,
+                                     true, &gpio_callback);
   auto nextTime = make_timeout_time_ms(flashDelay);
   while (true) {
     if (absolute_time_diff_us(nextTime, get_absolute_time()) >= 0) {

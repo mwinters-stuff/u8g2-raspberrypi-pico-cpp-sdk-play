@@ -2,15 +2,17 @@
   "cmake.configureOnOpen": false,
   "cmake.statusbar.advanced": {
     "debug" : {
-      "visibility": "hidden"
+      "visibility": "compact"
               },    "launch" : {
-      "visibility": "hidden"
+      "visibility": "compact"
                },
     "build" : {
-      "visibility": "hidden"
+      "visibility": "compact"
                },
     "buildTarget" : {
       "visibility": "hidden"
                },
-     },
+    },
+    "C_Cpp.intelliSenseEngineFallback": "Enabled",
+    "C_Cpp.intelliSenseEngine": "Default"
 }
