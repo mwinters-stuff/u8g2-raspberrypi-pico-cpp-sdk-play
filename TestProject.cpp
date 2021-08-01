@@ -45,6 +45,7 @@ int32_t position = 0;
 int8_t snowmanTop;
 int8_t snowmanWidth;
 int8_t snowmanHeight;
+int8_t fontHeight;
 uint16_t displayWidth;
 uint16_t displayHeight;
 
@@ -77,6 +78,20 @@ void drawDisplay(uint32_t position) {
   u8g2_DrawBox(&u8g2, 1, snowmanTop - snowmanHeight, displayWidth - 1, snowmanTop);
   u8g2_SetDrawColor(&u8g2, 1);
   u8g2_DrawGlyph(&u8g2, 1 + position, snowmanTop, 0x2603);
+
+
+  u8g2_SetFont(&u8g2, u8g2_font_6x13_tr); // choose a suitable font
+  
+  u8g2_SetClipWindow(&u8g2, 1, displayHeight - 2 - fontHeight, displayWidth - 1, displayHeight - 2);
+
+  u8g2_SetDrawColor(&u8g2, 0);
+  u8g2_DrawBox(&u8g2, 1, displayHeight - 2 - fontHeight, displayWidth - 1, displayHeight - 2);
+  u8g2_SetDrawColor(&u8g2, 1);
+
+  snprintf(msg, 15, "Count: %d", position);
+  u8g2_DrawStr(&u8g2, (displayWidth - u8g2_GetStrWidth(&u8g2, msg)) / 2,
+               displayHeight - 2, msg); // write something to the internal memory
+
   u8g2_UpdateDisplay(&u8g2);
 }
 
@@ -91,6 +106,9 @@ void display_core() {
   displayHeight = u8g2_GetDisplayHeight(&u8g2);
   displayWidth = u8g2_GetDisplayWidth(&u8g2);
 
+  u8g2_SetFont(&u8g2, u8g2_font_6x13_tr); // choose a suitable font
+  fontHeight = u8g2_GetMaxCharHeight(&u8g2);
+  
   u8g2_SetFont(&u8g2, u8g2_font_unifont_t_symbols);
   snowmanWidth = u8g2_GetMaxCharWidth(&u8g2);
   snowmanHeight = u8g2_GetMaxCharHeight(&u8g2);
